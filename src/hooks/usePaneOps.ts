@@ -2,8 +2,8 @@
 import { useCommander } from "../store/CommanderContext";
 import { join } from "@tauri-apps/api/path";
 import { copyPaths, movePaths, deletePaths } from "../utils/fsOps";
-import useMultiSelect from "./useMultiSelect";
 import type { RowType } from "../types/RowType";
+import useSelection from "./useSelection";
 
 type Params = {
     id: "left" | "right";
@@ -17,7 +17,7 @@ type Params = {
 
 export default function usePaneOps({ id, rows, currentPath, loadPath, goUp, openEntry }: Params) {
     const { registerPane, getPeerPath, reloadPane, clipboard, setClipboard, dragPaths, setDragPaths } = useCommander();
-    const sel = useMultiSelect(rows.length);
+    const sel = useSelection(rows.length, { onOpen: openEntry, onUp: goUp });
 
     async function selectedIndexesToPaths(indexes: number[]) {
         const paths: string[] = [];
