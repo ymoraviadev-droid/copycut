@@ -1,0 +1,5 @@
+@import "tailwindcss";
+
+/* ספר ל-Tailwind איפה לחפש מחלקות */
+@source "../index.html";
+@source "./**/*.{js,ts,jsx,tsx}";
