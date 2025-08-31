@@ -1,4 +1,3 @@
-// components/Pane.tsx
 import React, { useEffect } from "react";
 import ColumnHeaders from "./table/ColumnHeaders";
 import Row from "./table/Row";
@@ -11,22 +10,20 @@ import ContextMenu from "./menus/ContextMenu";
 import usePaneView from "../hooks/usePaneView";
 import { useCommander } from "../store/CommanderContext";
 import { PaneId } from "../types/PaneTypes";
+import useRename from "../hooks/useRename";
+import { renamePath } from "../utils/fsOps";
+import { join } from "@tauri-apps/api/path";
 
 type Props = { id: PaneId };
 
 export default function Pane({ id }: Props) {
-    // per-pane view (hidden/sort/dirsFirst) and focus tracking
     const { view, focusPane } = usePaneView(id);
-
-    // fs with view options
     const { rows, currentPath, rootPath, itemsCount, totalBytes, loadPath, goUp, openEntry } = useFs(view);
 
-    // column resize + container ref
     const resize = useColumnResize(null, [46, 14, 24, 16], 8);
     const containerRef = resize.containerRef as React.RefObject<HTMLDivElement>;
     const focusDom = () => containerRef.current?.focus();
 
-    // pane ops (selection, keyboard, DnD, clipboard ops)
     const {
         sel,
         onKeyDown,
@@ -43,7 +40,6 @@ export default function Pane({ id }: Props) {
         onDragEndRow,
     } = usePaneOps({ id, rows, currentPath, loadPath, goUp, openEntry });
 
-    // expose actions to top menu
     const { registerActions } = useCommander();
     register(() => currentPath, () => loadPath(currentPath));
     registerActions(id, {
@@ -58,39 +54,65 @@ export default function Pane({ id }: Props) {
         goUp,
     });
 
-    // context menu state
-    const { pos, openAt, close } = useContextMenu();
+    // rename hook
+    const {
+        renamingIndex,
+        renameValue,
+        setRenameValue,
+        nameInputRef,
+        startRename,
+        cancelRename,
+    } = useRename(rows);
 
-    // open custom menu using container-local coordinates
+    async function commitRename(i: number) {
+        const r = rows[i];
+        if (!r || (r as any).specialUp) { cancelRename(); return; }
+        const oldName = r.realName || r.displayName;
+        const newBase = (renameValue || "").trim();
+
+        // basic validation
+        if (!newBase || newBase === oldName || newBase.includes("/")) {
+            cancelRename();
+            return;
+        }
+
+        try {
+            const from = await join(currentPath, oldName!);
+            const to = await join(currentPath, newBase);
+            await renamePath(from, to);
+            await loadPath(currentPath);
+            // keep selection somewhat sane
+            setTimeout(() => {
+                const idx = rows.findIndex(x => x.displayName === newBase || x.realName === newBase);
+                if (idx > 0) sel.setCursor(idx);
+            }, 0);
+        } catch (e) {
+            console.error(e);
+            alert("Rename failed");
+        } finally {
+            cancelRename();
+        }
+    }
+
+    // context menu
+    const { pos, openAt, close } = useContextMenu();
     const openAtLocal = (e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
         focusDom();
-        const host = (containerRef.current as HTMLElement) || (e.currentTarget as HTMLElement);
-        const rect = host.getBoundingClientRect();
+        const rect = (containerRef.current as HTMLElement).getBoundingClientRect();
         openAt(e.clientX - rect.left, e.clientY - rect.top);
     };
-
-    // right-click on a row: select it if needed, then open menu
     const onContextMenuRow = (index: number, e: React.MouseEvent) => {
         if (!sel.selected.has(index)) sel.click(index, {});
         focusDom();
         openAtLocal(e);
     };
 
-    // keyboard: allow Esc to close menu, then delegate to pane ops (which calls sel.key)
-    const onKeyDownPane = (e: React.KeyboardEvent) => {
-        if (e.key === "Escape" && pos) {
-            e.preventDefault();
-            close();
-            return;
-        }
-        onKeyDown(e);
-    };
-
-    // right-click menu items
-    const hasSelection = sel.selected.size > 0 || sel.cursor !== 0;
+    // add Rename to menu
+    const hasSelection = sel.cursor !== 0 || sel.selected.size > 0;
     const menuItems = [
+        { label: "Rename…", shortcut: "F2", onClick: () => startRename(sel.cursor), disabled: sel.cursor === 0 },
         { label: "Move to other pane", shortcut: "Ctrl+Shift+M", onClick: moveToOther, disabled: !hasSelection },
         { label: "Copy to other pane", shortcut: "Ctrl+Shift+C", onClick: copyToOther, disabled: !hasSelection },
         { label: "Copy", shortcut: "Ctrl+C", onClick: copyToClipboard, disabled: !hasSelection },
@@ -99,7 +121,13 @@ export default function Pane({ id }: Props) {
         { label: "Delete", shortcut: "Del", onClick: removeSelected, disabled: !hasSelection },
     ];
 
-    // optional: auto-focus left pane at startup
+    // key handling: F2 triggers rename; Esc closes menu; rest go to pane ops
+    const onKeyDownPane = (e: React.KeyboardEvent) => {
+        if (e.key === "Escape" && pos) { e.preventDefault(); close(); return; }
+        if (e.key === "F2" && renamingIndex == null) { e.preventDefault(); startRename(sel.cursor); return; }
+        onKeyDown(e);
+    };
+
     useEffect(() => {
         if (id === "left") focusDom();
     }, [id]);
@@ -110,10 +138,7 @@ export default function Pane({ id }: Props) {
                 ref={containerRef}
                 tabIndex={0}
                 onFocus={() => focusPane(id)}
-                onMouseDown={() => {
-                    focusPane(id);
-                    focusDom(); // make sure arrow keys go here
-                }}
+                onMouseDown={() => { focusPane(id); focusDom(); }}
                 onKeyDown={onKeyDownPane}
                 className="flex-1 relative border-2 border-white overflow-hidden"
                 onContextMenu={openAtLocal}
@@ -128,14 +153,18 @@ export default function Pane({ id }: Props) {
                         rowRefs={sel.rowRefs}
                         cursor={sel.cursor}
                         selected={sel.selected}
-                        onClickRow={(i, e) => {
-                            sel.click(i, e);
-                            focusDom(); // keep focus after clicking rows
-                        }}
+                        onClickRow={(i, e) => { sel.click(i, e); focusDom(); }}
                         onOpen={(i) => openEntry(i)}
                         onContextMenuRow={onContextMenuRow}
                         onDragStartRow={onDragStartRow}
                         onDragEndRow={onDragEndRow}
+
+                        renamingIndex={renamingIndex}
+                        renameValue={renameValue}
+                        onRenameChange={setRenameValue}
+                        onRenameCommit={commitRename}
+                        onRenameCancel={cancelRename}
+                        nameInputRef={nameInputRef}
                     />
                 </div>
 
