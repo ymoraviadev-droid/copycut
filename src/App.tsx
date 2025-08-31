@@ -18,7 +18,7 @@ function App() {
   return (
     <main>
       <TopMenu />
-      <div className="h-[96vh] bg-blue-500 flex items-center justify-center gap-20 px-2">
+      <div className="h-[96vh] bg-blue-500 flex items-center justify-center gap-20 px-5 py-10">
         <Pane id="left" />
         <Pane id="right" />
       </div>

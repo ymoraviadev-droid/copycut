@@ -6,6 +6,7 @@ type Props = {
     rowsCount: number;
     totalBytes: number;
     loadPath: (p: string) => void;
+    isHighlight: boolean
 };
 
 function normalize(p: string) {
@@ -13,7 +14,7 @@ function normalize(p: string) {
     return s || "/";
 }
 
-export default function StatusBar({ currentPath, rootPath, rowsCount, totalBytes, loadPath }: Props) {
+export default function StatusBar({ currentPath, rootPath, rowsCount, totalBytes, loadPath, isHighlight }: Props) {
     const root = normalize(rootPath || "/");
     const rootLabel = root === "/" ? "/" : root.split("/").pop() || "/";
 
@@ -24,8 +25,10 @@ export default function StatusBar({ currentPath, rootPath, rowsCount, totalBytes
     })();
     const segs = rel ? rel.split("/") : [];
 
+    const bg = !isHighlight ? "bg-transparent" : "bg-blue-600";
+
     return (
-        <div className="mt-2 h-10 border-2 border-white flex items-center justify-between px-4 text-white">
+        <div className={`mt-2 h-10 border-2 border-white flex items-center justify-between px-4 text-white ${bg}`}>
             <div className="flex items-center gap-1 text-sm">
                 <span className="select-none">/</span>
                 {root !== "/" && (

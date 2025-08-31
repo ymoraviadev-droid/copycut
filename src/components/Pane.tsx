@@ -38,7 +38,7 @@ export default function Pane({ id }: Props) {
         removeSelected,
     } = usePaneOps({ id, rows, currentPath, loadPath, goUp, openEntry });
 
-    const { registerActions } = useCommander();
+    const { registerActions, activePane } = useCommander();
     register(() => currentPath, () => loadPath(currentPath));
     registerActions(id, {
         open: () => openEntry(sel.cursor),
@@ -131,7 +131,7 @@ export default function Pane({ id }: Props) {
     }, [id]);
 
     return (
-        <div className="h-full w-1/2 border-2 border-white p-1 flex flex-col">
+        <div className={`h-full w-1/2 border-2 border-white p-1 flex flex-col`}>
             <div
                 ref={containerRef}
                 tabIndex={0}
@@ -144,7 +144,7 @@ export default function Pane({ id }: Props) {
                 onMouseLeave={() => sel.dragEnd()}
             >
                 <div className="absolute inset-0 overflow-y-auto" onScroll={() => pos && close()}>
-                    <ColumnHeaders gridTemplate={resize.gridTemplate} />
+                    <ColumnHeaders gridTemplate={resize.gridTemplate} isHighlight={activePane === id} />
                     <Row
                         rows={rows}
                         gridTemplate={resize.gridTemplate}
@@ -187,6 +187,7 @@ export default function Pane({ id }: Props) {
                 rowsCount={itemsCount}
                 totalBytes={totalBytes}
                 loadPath={loadPath}
+                isHighlight={activePane === id}
             />
         </div>
     );

@@ -10,7 +10,7 @@ export default function TopMenu() {
     const hasOther = !!getPeerPath(activePane);
 
     return (
-        <div className="h-[4vh] bg-blue-900 text-white border-b-2 border-white flex items-center gap-4 px-3 text-sm select-none">
+        <div className="h-[4vh] bg-blue-900 text-white flex items-center gap-4 px-3 text-sm select-none">
             <Menu label="File">
                 <Item label="Open" onClick={act?.open} disabled={!act?.open} />
                 <Sep />
