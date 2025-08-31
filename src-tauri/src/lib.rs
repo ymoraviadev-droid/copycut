@@ -138,6 +138,34 @@ fn toggle_devtools(app: tauri::AppHandle) {
     }
 }
 
+#[tauri::command]
+async fn dir_size(path: String) -> Result<u64, String> {
+    use std::path::PathBuf;
+    use walkdir::WalkDir;
+
+    let root: PathBuf = PathBuf::from(path);
+
+    let total = tauri::async_runtime::spawn_blocking(move || {
+        let mut sum: u64 = 0;
+        for entry in WalkDir::new(root)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            if entry.file_type().is_file() {
+                if let Ok(md) = entry.metadata() {
+                    sum = sum.saturating_add(md.len());
+                }
+            }
+        }
+        sum
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(total)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -148,7 +176,8 @@ pub fn run() {
             move_paths,
             delete_paths,
             rename_path,
-            toggle_devtools
+            toggle_devtools,
+            dir_size
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -36,7 +36,6 @@ export default function useFs(view?: PaneView) {
                 res = (a.size || 0) - (b.size || 0);
                 break;
             case "date":
-                // modified is "YYYY-MM-DD HH:MM" so lexicographic sort works
                 res = (a.modified || "").localeCompare(b.modified || "");
                 break;
             case "type":
@@ -52,13 +51,13 @@ export default function useFs(view?: PaneView) {
         const entries = (await invoke<FileEntry[]>("list_dir", { path: p })) ?? [];
 
         const v = view || { showHidden: false, sortKey: "name", sortDir: "asc", dirsFirst: true };
-
         const filtered = v.showHidden ? entries : entries.filter(e => !e.name.startsWith("."));
         const sorted = [...filtered].sort(compare);
 
-        // stats (files only), count excludes "../"
+        // quick stats (files in this level only) to show immediately
         setItemsCount(sorted.length);
-        setTotalBytes(sorted.filter(e => !e.is_dir).reduce((s, e) => s + (e.size || 0), 0));
+        const levelFilesBytes = sorted.filter(e => !e.is_dir).reduce((s, e) => s + (e.size || 0), 0);
+        setTotalBytes(levelFilesBytes);
 
         const up: RowType = { displayName: "..", isDir: true, size: "", date: "", time: "", specialUp: true };
         const mapped: RowType[] = sorted.map(e => ({
@@ -72,6 +71,15 @@ export default function useFs(view?: PaneView) {
 
         setRows([up, ...mapped]);
         setCurrentPath(p);
+
+        // async: compute full folder size (recursive) and update when ready
+        try {
+            const dirBytes = await invoke<number>("dir_size", { path: p });
+            setTotalBytes(dirBytes);
+        } catch {
+            // if it fails (permissions, etc.), keep the immediate level size
+            setTotalBytes(levelFilesBytes);
+        }
     }
 
     async function goUp() {
@@ -83,7 +91,7 @@ export default function useFs(view?: PaneView) {
     async function openEntry(index: number) {
         const r = rows[index];
         if (!r) return;
-        if (r.specialUp) { await goUp(); return; }
+        if ((r as any).specialUp) { await goUp(); return; }
         const full = await join(currentPath, r.realName!);
         if (r.isDir) await loadPath(full); else await openWithDefaultApp(full);
     }
@@ -97,7 +105,6 @@ export default function useFs(view?: PaneView) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // reload when view changes
     useEffect(() => {
         if (!currentPath) return;
         loadPath(currentPath);
