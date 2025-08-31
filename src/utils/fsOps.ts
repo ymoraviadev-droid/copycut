@@ -11,3 +11,9 @@ export async function movePaths(srcPaths: string[], destDir: string) {
 export async function deletePaths(paths: string[]) {
     await invoke("delete_paths", { paths });
 }
+
+export async function renamePath(from: string, to: string) {
+    if (!from || !to) return;
+    return invoke("rename_path", { from, to });
+}
+

@@ -118,6 +118,11 @@ fn delete_paths(paths: Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn rename_path(from: String, to: String) -> Result<(), String> {
+    std::fs::rename(&from, &to).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -126,7 +131,8 @@ pub fn run() {
             list_dir,
             copy_paths,
             move_paths,
-            delete_paths
+            delete_paths,
+            rename_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
