@@ -6,6 +6,7 @@ use std::{
     path::{Path, PathBuf},
     time::SystemTime,
 };
+use tauri::Manager;
 
 #[derive(Serialize)]
 struct FileEntry {
@@ -123,6 +124,20 @@ fn rename_path(from: String, to: String) -> Result<(), String> {
     std::fs::rename(&from, &to).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn toggle_devtools(app: tauri::AppHandle) {
+    if let Some(win) = app.get_webview_window("main") {
+        #[cfg(debug_assertions)]
+        {
+            if win.is_devtools_open() {
+                win.close_devtools();
+            } else {
+                win.open_devtools();
+            }
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -133,6 +148,7 @@ pub fn run() {
             move_paths,
             delete_paths,
             rename_path,
+            toggle_devtools
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,4 +1,5 @@
-import React, { useEffect } from "react";
+// components/Pane.tsx
+import React, { useEffect, useState } from "react";
 import ColumnHeaders from "./table/ColumnHeaders";
 import Row from "./table/Row";
 import StatusBar from "./table/StatusBar";
@@ -19,6 +20,7 @@ type Props = { id: PaneId };
 export default function Pane({ id }: Props) {
     const { view, focusPane } = usePaneView(id);
     const { rows, currentPath, rootPath, itemsCount, totalBytes, loadPath, goUp, openEntry } = useFs(view);
+    const [isDropHot] = useState(false); // not used (no DnD)
 
     const resize = useColumnResize(null, [46, 14, 24, 16], 8);
     const containerRef = resize.containerRef as React.RefObject<HTMLDivElement>;
@@ -34,10 +36,6 @@ export default function Pane({ id }: Props) {
         copyToOther,
         pasteHere,
         removeSelected,
-        onDragStartRow,
-        onDragOverPane,
-        onDropPane,
-        onDragEndRow,
     } = usePaneOps({ id, rows, currentPath, loadPath, goUp, openEntry });
 
     const { registerActions } = useCommander();
@@ -140,10 +138,10 @@ export default function Pane({ id }: Props) {
                 onFocus={() => focusPane(id)}
                 onMouseDown={() => { focusPane(id); focusDom(); }}
                 onKeyDown={onKeyDownPane}
-                className="flex-1 relative border-2 border-white overflow-hidden"
+                className={`flex-1 relative border-2 border-white overflow-hidden ${isDropHot ? "ring-2 ring-yellow-300" : ""}`}
                 onContextMenu={openAtLocal}
-                onDragOver={onDragOverPane}
-                onDrop={onDropPane}
+                onMouseUp={() => sel.dragEnd()}
+                onMouseLeave={() => sel.dragEnd()}
             >
                 <div className="absolute inset-0 overflow-y-auto" onScroll={() => pos && close()}>
                     <ColumnHeaders gridTemplate={resize.gridTemplate} />
@@ -156,9 +154,10 @@ export default function Pane({ id }: Props) {
                         onClickRow={(i, e) => { sel.click(i, e); focusDom(); }}
                         onOpen={(i) => openEntry(i)}
                         onContextMenuRow={onContextMenuRow}
-                        onDragStartRow={onDragStartRow}
-                        onDragEndRow={onDragEndRow}
-
+                        // wire drag-range helpers
+                        dragStart={sel.dragStart}
+                        dragOver={sel.dragOver}
+                        // rename
                         renamingIndex={renamingIndex}
                         renameValue={renameValue}
                         onRenameChange={setRenameValue}

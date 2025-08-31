@@ -16,6 +16,12 @@ export default function useSelection(rowCount: number, opts: Opts) {
     // refs for scroll-into-view
     const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
 
+    // --- drag-range selection state (no native DnD) ---
+    const draggingRef = useRef(false);
+    const dragOriginRef = useRef(0);
+    const preDragRef = useRef<Set<number>>(new Set());
+    const dragAdditiveRef = useRef(false);
+
     // keep cursor visible
     useEffect(() => {
         const el = rowRefs.current[cursor];
@@ -86,8 +92,7 @@ export default function useSelection(rowCount: number, opts: Opts) {
 
             // extend selection with Shift+Arrows
             if (e.shiftKey && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
-                const nextIndex =
-                    e.key === "ArrowDown" ? Math.min(cursor + 1, rowCount - 1) : Math.max(cursor - 1, 0);
+                const nextIndex = e.key === "ArrowDown" ? Math.min(cursor + 1, rowCount - 1) : Math.max(cursor - 1, 0);
                 const start = Math.min(anchorRef.current, nextIndex);
                 const end = Math.max(anchorRef.current, nextIndex);
                 const next = new Set<number>();
@@ -96,7 +101,7 @@ export default function useSelection(rowCount: number, opts: Opts) {
                 setCursor(nextIndex);
             }
 
-            // MC style: Insert toggles + moves down; Space toggles
+            // MC style: Insert toggles + moves down; Space toggles.
             if (e.key === "Insert") {
                 const i = cursor;
                 const next = new Set(selected);
@@ -118,6 +123,44 @@ export default function useSelection(rowCount: number, opts: Opts) {
         [rowCount, cursor, selected, opts]
     );
 
+    // ---- DRAG-RANGE (mouse drag only) -----------------------------------------
+
+    function dragStart(i: number, additive: boolean) {
+        draggingRef.current = true;
+        dragOriginRef.current = i;
+        preDragRef.current = new Set(selected);
+        dragAdditiveRef.current = additive;
+        anchorRef.current = i;
+        setCursor(i);
+        // nicer UX: avoid text selection while dragging
+        document.body.style.userSelect = "none";
+    }
+
+    function dragOver(i: number) {
+        if (!draggingRef.current) return;
+        const start = Math.min(dragOriginRef.current, i);
+        const end = Math.max(dragOriginRef.current, i);
+
+        const range = new Set<number>();
+        for (let k = start; k <= end; k++) if (k !== 0) range.add(k);
+
+        let next: Set<number>;
+        if (dragAdditiveRef.current) {
+            next = new Set(preDragRef.current);
+            for (const k of range) next.add(k);
+        } else {
+            next = range;
+        }
+        setSelected(next);
+        setCursor(i);
+    }
+
+    function dragEnd() {
+        if (!draggingRef.current) return;
+        draggingRef.current = false;
+        document.body.style.userSelect = "";
+    }
+
     // compatibility with older code that expected selectedRow + onKeyDown
     const selectedRow = cursor;
     const setSelectedRow = setCursor;
@@ -133,6 +176,9 @@ export default function useSelection(rowCount: number, opts: Opts) {
         key,
         rowRefs,
         clear,
+        dragStart,
+        dragOver,
+        dragEnd,
         // old aliases
         selectedRow,
         setSelectedRow,
