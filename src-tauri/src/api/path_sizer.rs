@@ -69,14 +69,6 @@ fn should_skip(name: &str, show_hidden: bool, ignores: &[String]) -> bool {
     ignores.iter().any(|ig| name.contains(ig))
 }
 
-/// Cancel a running job by id (no-op if already finished).
-#[tauri::command]
-pub fn cancel_path_sizer(job_id: String) {
-    if let Some(job) = JOBS.lock().unwrap().remove(&job_id) {
-        job.cancel.store(true, Ordering::SeqCst);
-    }
-}
-
 /// Ensure a size worker is running for `path`. Emits:
 /// - "dir_size:child" for each immediate subfolder
 /// - "dir_size:summary" for the full folder total
