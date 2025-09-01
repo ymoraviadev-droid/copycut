@@ -27,9 +27,45 @@ export default function useFs(view?: PaneView) {
     const currentJobIdRef = useRef<string | null>(null);
 
     // per-folder bookkeeping
-    const knownDirBytesRef = useRef<Map<string, number>>(new Map()); // child name -> bytes (emitted)
+    const knownDirBytesRef = useRef<Map<string, number>>(new Map()); // child name -> bytes
     const nameToRowIndexRef = useRef<Map<string, number>>(new Map()); // child name -> row index (+1 due to "..")
-    const runningTotalRef = useRef<number>(0);                       // status-bar total (files + finished dirs)
+    const runningTotalRef = useRef<number>(0);                       // files + finished dirs
+
+    // --- dot animation state (only for folders still computing) -----------------
+    const animatingNamesRef = useRef<Set<string>>(new Set());         // names currently “spinning”
+    const dotsTickRef = useRef<number>(1);                      // 1..5
+    const dotTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+    function startDotTimer() {
+        stopDotTimer();
+        dotTimerRef.current = setInterval(() => {
+            // advance ticker
+            dotsTickRef.current = (dotsTickRef.current % 5) + 1;
+            // repaint only the displayName for animating folders
+            const dots = ".".repeat(dotsTickRef.current);
+            setRows(prev => {
+                if (!animatingNamesRef.current.size) return prev;
+                const next = prev.map((r) => {
+                    if (!r?.isDir || (r as any).specialUp) return r;
+                    const name = r.realName || r.displayName.replace(/\s*\/.*/, "");
+                    if (!name || !animatingNamesRef.current.has(name)) return r;
+                    // Rebuild from realName to avoid compounding dots:
+                    const base = `${name} /`;
+                    return { ...r, displayName: `${base} ${dots}` };
+                });
+                return next;
+            });
+        }, 500);
+    }
+    function stopDotTimer() {
+        if (dotTimerRef.current) {
+            clearInterval(dotTimerRef.current);
+            dotTimerRef.current = null;
+        }
+    }
+    function maybeStopDots() {
+        if (animatingNamesRef.current.size === 0) stopDotTimer();
+    }
 
     function extOf(name: string) {
         const i = name.lastIndexOf(".");
@@ -69,25 +105,56 @@ export default function useFs(view?: PaneView) {
         (async () => {
             // per-child folder result
             unsubs.push(
-                await listen<ChildSizeEvent>("dir_size:child", (evt) => {
+                await listen<ChildSizeEvent>("dir_size:child", async (evt) => {
                     const p = evt.payload;
-                    // wrong job? ignore (old job after navigation)
                     if (!p || p.job_id !== currentJobIdRef.current) return;
 
-                    // de-dupe: only add once
+                    // de-dupe: only add once per folder
                     if (knownDirBytesRef.current.has(p.name)) return;
                     knownDirBytesRef.current.set(p.name, p.bytes);
 
-                    // update row
-                    const idx = nameToRowIndexRef.current.get(p.name);
-                    if (idx != null) {
-                        setRows((prev) => {
-                            const next = [...prev];
-                            const r = next[idx];
-                            if (r) next[idx] = { ...r, size: fmtSize(p.bytes) };
-                            return next;
-                        });
+                    // stop animating this name
+                    if (animatingNamesRef.current.delete(p.name)) {
+                        maybeStopDots();
                     }
+
+                    // derive row index
+                    const idx = nameToRowIndexRef.current.get(p.name);
+                    if (idx == null) {
+                        // still bump total even if row missing
+                        runningTotalRef.current = runningTotalRef.current + p.bytes;
+                        setTotalBytes(runningTotalRef.current);
+                        return;
+                    }
+
+                    // also compute immediate children count for the “· N items” part
+                    // (respect showHidden like the list view)
+                    let itemsCountForDir = 0;
+                    try {
+                        const full = await join(currentPath, p.name);
+                        const kids = (await invoke<FileEntry[]>("list_dir", { path: full })) ?? [];
+                        const v = view || { showHidden: false } as PaneView;
+                        itemsCountForDir = (v.showHidden ? kids : kids.filter(e => !e.name.startsWith("."))).length;
+                    } catch {
+                        itemsCountForDir = 0;
+                    }
+
+                    // patch row with “<bytes> · <items>”
+                    setRows((prev) => {
+                        const next = [...prev];
+                        const r = next[idx];
+                        if (r) {
+                            const name = r.realName || p.name;
+                            // Remove any animation dots by rebuilding from real name
+                            const display = `${name} /`;
+                            next[idx] = {
+                                ...r,
+                                displayName: display,
+                                size: `${fmtSize(p.bytes)} · ${itemsCountForDir} item${itemsCountForDir === 1 ? "" : "s"}`,
+                            };
+                        }
+                        return next;
+                    });
 
                     // bump running total (files already included)
                     runningTotalRef.current = runningTotalRef.current + p.bytes;
@@ -102,7 +169,18 @@ export default function useFs(view?: PaneView) {
                     if (!p || p.job_id !== currentJobIdRef.current) return;
                     runningTotalRef.current = p.bytes;
                     setTotalBytes(p.bytes);
-                    // job is done; backend also removes it from its map
+
+                    // Clear all remaining animations (if any)
+                    animatingNamesRef.current.clear();
+                    stopDotTimer();
+
+                    // Final pass to normalize any displayNames that might still have dots
+                    setRows(prev => prev.map(r => {
+                        if (!r?.isDir || (r as any).specialUp) return r;
+                        const nm = r.realName;
+                        if (!nm) return r;
+                        return { ...r, displayName: `${nm} /` };
+                    }));
                 })
             );
         })().catch(console.error);
@@ -110,6 +188,8 @@ export default function useFs(view?: PaneView) {
         return () => {
             for (const u of unsubs) try { u(); } catch { }
             unsubs = [];
+            stopDotTimer();
+            animatingNamesRef.current.clear();
         };
     }, []);
 
@@ -127,6 +207,8 @@ export default function useFs(view?: PaneView) {
         knownDirBytesRef.current = new Map();
         nameToRowIndexRef.current = new Map();
         runningTotalRef.current = 0;
+        animatingNamesRef.current.clear();
+        stopDotTimer();
 
         // list fast
         const entries = (await invoke<FileEntry[]>("list_dir", { path: p })) ?? [];
@@ -145,7 +227,7 @@ export default function useFs(view?: PaneView) {
         const mapped: RowType[] = sorted.map(e => ({
             displayName: `${e.name}${e.is_dir ? " /" : ""}`,
             isDir: e.is_dir,
-            size: fmtSize(e.is_dir ? 0 : (e.size || 0)),
+            size: fmtSize(e.is_dir ? 0 : (e.size || 0)), // replaced on child events
             date: `${getDate(e.modified)} ${getTime(e.modified)}`,
             realName: e.name,
         }));
@@ -158,29 +240,33 @@ export default function useFs(view?: PaneView) {
         setRows([up, ...mapped]);
         setCurrentPath(p);
 
+        // mark ALL folders as “animating” initially (they’ll clear as results arrive)
+        for (const e of sorted) if (e.is_dir) animatingNamesRef.current.add(e.name);
+        if (animatingNamesRef.current.size) {
+            dotsTickRef.current = 1;
+            startDotTimer();
+        }
+
         // kick the background sizer for this directory
         const jobId = `job-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         currentJobIdRef.current = jobId;
-
-        // show_hidden / ignores are plumbed through as you defined in Rust
-        const show_hidden = !!v.showHidden;
-        const ignores: string[] = []; // keep empty unless you want patterns
 
         // guard: if user navigated away very fast
         if (token !== loadSeqRef.current) return;
 
         try {
             await invoke("start_dir_sizer", {
-                app: null,                 // AppHandle is supplied by Tauri under the hood; keep null here
+                app: null,                 // AppHandle is provided by Tauri; keep null here
                 path: p,
                 jobId,
-                showHidden: show_hidden,
-                ignores,
+                showHidden: !!v.showHidden,
+                ignores: [] as string[],
             });
         } catch (e) {
-            // If the streaming job fails, we can fall back to static dir_size(p)
-            // but per your ask I'll keep it minimal and just log.
             console.error("start_dir_sizer failed:", e);
+            // stop anim; leave 0 B (or we could fall back to single dir_size here if you want)
+            animatingNamesRef.current.clear();
+            stopDotTimer();
         }
     }
 
