@@ -25,3 +25,5 @@ serde_json = "1"
 chrono = { version = "0.4", features = ["clock"] }
 fs_extra = "1.3"
 walkdir = "2"
+once_cell = "1.21.3"
+tokio = "1.47.1"
