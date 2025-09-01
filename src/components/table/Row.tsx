@@ -29,6 +29,7 @@ type Props = {
     // Types inferred via prop usage (no need to import the hook here).
     dragStart?: (i: number, additive: boolean) => void;
     dragOver?: (i: number) => void;
+    isHighlight: boolean;
 };
 
 export default function Row(props: Props) {
@@ -36,7 +37,7 @@ export default function Row(props: Props) {
         rows, gridTemplate, rowRefs, cursor, selected,
         onClickRow, onOpen, onContextMenuRow,
         renamingIndex, renameValue, onRenameChange, onRenameCommit, onRenameCancel, nameInputRef,
-        dragStart, dragOver,
+        dragStart, dragOver, isHighlight
     } = props;
 
     return (
@@ -49,6 +50,7 @@ export default function Row(props: Props) {
                 let rowCls = "grid items-center px-4 py-0.5 select-none text-white";
                 if (!isHeader && isCursor) rowCls += " bg-blue-700";
                 if (!isHeader && isSel) rowCls += " bg-blue-600";
+                if (!isHeader && !isHighlight) rowCls += " bg-transparent";
                 if (isHeader) rowCls += " opacity-90 italic";
 
                 const handleMouseDown = (e: React.MouseEvent) => {

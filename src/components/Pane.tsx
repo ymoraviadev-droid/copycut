@@ -164,6 +164,7 @@ export default function Pane({ id }: Props) {
                         onRenameCommit={commitRename}
                         onRenameCancel={cancelRename}
                         nameInputRef={nameInputRef}
+                        isHighlight={activePane === id}
                     />
                 </div>
 
