@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import MenuItem from "./MenuItem";
+import MenuSep from "./MenuSep";
 
-export default function DropDown({ label, children }: { label: string; children: React.ReactNode }) {
+function Menu({ label, children }: { label: string; children: React.ReactNode }) {
     const [open, setOpen] = useState(false);
     const closeTimer = useRef<number | null>(null);
     const rootRef = useRef<HTMLDivElement>(null);
@@ -54,4 +56,9 @@ export default function DropDown({ label, children }: { label: string; children:
             </div>
         </div>
     );
-}
+};
+
+Menu.Item = MenuItem;
+Menu.Sep = MenuSep;
+
+export default Menu;

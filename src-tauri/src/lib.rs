@@ -12,7 +12,9 @@ pub fn run() {
             api::devtools::toggle_devtools,
             api::dir_size::dir_size,
             api::dir_sizer::start_dir_sizer,
-            api::dir_sizer::cancel_dir_sizer
+            api::dir_sizer::cancel_dir_sizer,
+            api::path_sizer::get_cached_sizes,
+            api::path_sizer::ensure_path_sizer
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
