@@ -22,7 +22,7 @@ export default function Pane({ id }: Props) {
     const { rows, currentPath, rootPath, itemsCount, totalBytes, loadPath, goUp, openEntry } = useFs(view);
     const [isDropHot] = useState(false); // not used (no DnD)
 
-    const resize = useColumnResize(null, [46, 14, 24, 16], 8);
+    const resize = useColumnResize(null, [46, 12, 24], 8);
     const containerRef = resize.containerRef as React.RefObject<HTMLDivElement>;
     const focusDom = () => containerRef.current?.focus();
 
@@ -171,7 +171,7 @@ export default function Pane({ id }: Props) {
                 {resize.cols.slice(0, -1).map((_, i) => (
                     <div
                         key={i}
-                        className="absolute top-0 bottom-0 w-2 -translate-x-1/2 cursor-col-resize bg-white w-[1px]"
+                        className={`absolute top-0 bottom-0 w-2 -translate-x-1/2 cursor-col-resize bg-white w-[3px] ring-2 ring-blue-400`}
                         style={{ left: `calc(${resize.accPct(i)}%)` }}
                         onPointerDown={(e) => resize.onPointerDown(i, e)}
                         onPointerMove={resize.onPointerMove}

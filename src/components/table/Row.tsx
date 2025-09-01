@@ -53,7 +53,7 @@ export default function Row(props: Props) {
                 const headerRowBg = isHighlight ? "bg-indigo-800" : "bg-blue-500";
                 const stickyProps = isHeader
                     ? {
-                        className: `${rowCls} ${headerRowBg} ${isHighlight && "italic border-b-2 border-white"} sticky z-20`,
+                        className: `${rowCls} ${headerRowBg} "italic border-b-2 border-white"} sticky z-20`,
                         style: {
                             gridTemplateColumns: gridTemplate,
                             top: "var(--hdr-h, 42px)",
@@ -106,7 +106,7 @@ export default function Row(props: Props) {
                                     onBlur={() => onRenameCancel?.()}
                                 />
                             ) : (
-                                <span className="truncate">{r.displayName}</span>
+                                <span className={`truncate ${r.isDir && "font-semibold"}`}>{r.displayName}</span>
                             )}
                         </div>
 
@@ -118,11 +118,6 @@ export default function Row(props: Props) {
                         {/* Date */}
                         <div className="truncate pl-4" onMouseDown={handleMouseDown}>
                             <span title={r.date}>{r.date}</span>
-                        </div>
-
-                        {/* Time */}
-                        <div className="truncate pl-4" onMouseDown={handleMouseDown}>
-                            <span title={r.time}>{r.time}</span>
                         </div>
                     </div>
                 );

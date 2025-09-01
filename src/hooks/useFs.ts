@@ -59,13 +59,12 @@ export default function useFs(view?: PaneView) {
         const levelFilesBytes = sorted.filter(e => !e.is_dir).reduce((s, e) => s + (e.size || 0), 0);
         setTotalBytes(levelFilesBytes);
 
-        const up: RowType = { displayName: "..", isDir: true, size: "", date: "", time: "", specialUp: true };
+        const up: RowType = { displayName: "..", isDir: true, size: "", date: "", specialUp: true };
         const mapped: RowType[] = sorted.map(e => ({
-            displayName: e.name,
+            displayName: `${e.name}  ${e.is_dir && "/"}`,
             isDir: e.is_dir,
-            size: fmtSize(e.size, e.is_dir),
-            date: getDate(e.modified),
-            time: getTime(e.modified),
+            size: fmtSize(e.size),
+            date: `${getDate(e.modified)} ${getTime(e.modified)}`,
             realName: e.name
         }));
 

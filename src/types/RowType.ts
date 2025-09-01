@@ -3,7 +3,6 @@ export type RowType = {
     isDir: boolean;
     size: string;
     date: string;
-    time: string;
     specialUp?: boolean;
     realName?: string;
 };

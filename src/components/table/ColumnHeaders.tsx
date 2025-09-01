@@ -16,7 +16,6 @@ export default function ColumnHeaders({ gridTemplate, isHighlight }: Props) {
                     <div className="text-yellow-400 text-2xl mb-0 select-none">Name</div>
                     <div className="px-4 text-yellow-400 text-2xl mb-0 select-none">Size</div>
                     <div className="px-4 text-yellow-400 text-2xl mb-0 select-none">Date</div>
-                    <div className="px-4 text-yellow-400 text-2xl mb-0 select-none">Time</div>
                 </div>
             </div>
         </div>

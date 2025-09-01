@@ -1,5 +1,5 @@
-const fmtSize = (b: number, d: boolean) =>
-    d ? "<DIR>" : b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(1)} KB`
+const fmtSize = (b: number) =>
+    b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(1)} KB`
         : b < 1073741824 ? `${(b / 1048576).toFixed(1)} MB` : `${(b / 1073741824).toFixed(1)} GB`;
 
 const getDate = (m?: string | null) => (m && m.includes(" ")) ? m.split(" ")[0] : "";
