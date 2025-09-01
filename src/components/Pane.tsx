@@ -171,7 +171,7 @@ export default function Pane({ id }: Props) {
                 {resize.cols.slice(0, -1).map((_, i) => (
                     <div
                         key={i}
-                        className="absolute top-0 bottom-0 w-2 -translate-x-1/2 cursor-col-resize"
+                        className="absolute top-0 bottom-0 w-2 -translate-x-1/2 cursor-col-resize bg-white w-[1px]"
                         style={{ left: `calc(${resize.accPct(i)}%)` }}
                         onPointerDown={(e) => resize.onPointerDown(i, e)}
                         onPointerMove={resize.onPointerMove}

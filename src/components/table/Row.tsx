@@ -1,4 +1,3 @@
-// components/table/Row.tsx
 import React, { RefObject } from "react";
 import type { RowType } from "../../types/RowType";
 
@@ -24,11 +23,10 @@ type Props = {
     nameInputRef?: React.RefObject<HTMLInputElement | null>;
 
     // drag-range (from useSelection)
-    // supplied by the parent: sel.dragStart / sel.dragOver / sel.dragEnd (end happens on Pane)
-    // We only need dragStart + dragOver here.
-    // Types inferred via prop usage (no need to import the hook here).
     dragStart?: (i: number, additive: boolean) => void;
     dragOver?: (i: number) => void;
+
+    // to keep colors consistent with active pane
     isHighlight: boolean;
 };
 
@@ -43,15 +41,28 @@ export default function Row(props: Props) {
     return (
         <div className="min-w-0">
             {rows.map((r, i) => {
-                const isHeader = !!(r as any).specialUp; // the "../" row
+                const isHeader = !!(r as any).specialUp;
                 const isCursor = i === cursor;
                 const isSel = selected.has(i);
 
+                // base row classes
                 let rowCls = "grid items-center px-4 py-0.5 select-none text-white";
                 if (!isHeader && isCursor) rowCls += " bg-blue-700";
                 if (!isHeader && isSel) rowCls += " bg-blue-600";
                 if (!isHeader && !isHighlight) rowCls += " bg-transparent";
-                if (isHeader) rowCls += " opacity-90 italic";
+                const headerRowBg = isHighlight ? "bg-indigo-800" : "bg-blue-500";
+                const stickyProps = isHeader
+                    ? {
+                        className: `${rowCls} ${headerRowBg} ${isHighlight && "italic border-b-2 border-white"} sticky z-20`,
+                        style: {
+                            gridTemplateColumns: gridTemplate,
+                            top: "var(--hdr-h, 42px)",
+                        } as React.CSSProperties,
+                    }
+                    : {
+                        className: rowCls,
+                        style: { gridTemplateColumns: gridTemplate } as React.CSSProperties,
+                    };
 
                 const handleMouseDown = (e: React.MouseEvent) => {
                     if (e.button !== 0) return;
@@ -64,7 +75,6 @@ export default function Row(props: Props) {
                         altKey: e.altKey,
                         shiftKey: e.shiftKey,
                     });
-                    // prevent text dragging
                     e.preventDefault();
                 };
 
@@ -76,14 +86,13 @@ export default function Row(props: Props) {
                     <div
                         key={r.displayName + "-" + i}
                         ref={(el) => { rowRefs.current[i] = el; }}
-                        className={rowCls}
-                        style={{ gridTemplateColumns: gridTemplate }}
+                        {...stickyProps}
                         onDoubleClick={() => onOpen(i)}
                         onContextMenu={(e) => onContextMenuRow(i, e)}
                         onMouseEnter={handleMouseEnter}
                     >
                         {/* Name */}
-                        <div className="min-w-0 truncate pr-4" onMouseDown={handleMouseDown}>
+                        <div className="min-w-0 truncate" onMouseDown={handleMouseDown}>
                             {renamingIndex === i && !isHeader ? (
                                 <input
                                     ref={nameInputRef}
@@ -102,17 +111,17 @@ export default function Row(props: Props) {
                         </div>
 
                         {/* Size */}
-                        <div className="truncate pr-4" onMouseDown={handleMouseDown}>
+                        <div className="truncate pl-4" onMouseDown={handleMouseDown}>
                             <span title={r.size}>{r.size}</span>
                         </div>
 
                         {/* Date */}
-                        <div className="truncate pr-4" onMouseDown={handleMouseDown}>
+                        <div className="truncate pl-4" onMouseDown={handleMouseDown}>
                             <span title={r.date}>{r.date}</span>
                         </div>
 
                         {/* Time */}
-                        <div className="truncate" onMouseDown={handleMouseDown}>
+                        <div className="truncate pl-4" onMouseDown={handleMouseDown}>
                             <span title={r.time}>{r.time}</span>
                         </div>
                     </div>
