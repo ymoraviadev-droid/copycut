@@ -3,6 +3,22 @@
 version = 4
 
 [[package]]
+name = "CopyCut"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "fs_extra",
+ "once_cell",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-opener",
+ "tokio",
+ "walkdir",
+]
+
+[[package]]
 name = "addr2line"
 version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2041,22 +2057,6 @@ dependencies = [
  "serde",
  "thiserror 2.0.16",
  "windows-sys 0.60.2",
-]
-
-[[package]]
-name = "nc"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "fs_extra",
- "once_cell",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-opener",
- "tokio",
- "walkdir",
 ]
 
 [[package]]

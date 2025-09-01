@@ -58,7 +58,7 @@ export default function StatusBar({ currentPath, rootPath, rowsCount, totalBytes
             </div>
 
             <p>{rowsCount} items • {fmtBytes(totalBytes)}</p>
-            <p>NC v1.0</p>
+            <p>CopyCut v1.0</p>
         </div>
     );
 }
