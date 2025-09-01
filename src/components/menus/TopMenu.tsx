@@ -11,13 +11,11 @@ export default function TopMenu() {
 
     return (
         <div className="h-[4vh] bg-blue-900 text-white flex items-center gap-4 px-3 text-sm select-none">
-            <Menu label="File">
-                <Item label="Open" onClick={act?.open} disabled={!act?.open} />
-                <Sep />
-                <Item label="Delete…" onClick={act?.remove} disabled={!act?.remove} />
-                <Sep />
+            <Menu label="Main">
                 <Item label="Settings" />
                 <Item label="About" />
+                <Sep />
+                <Item label="Exit" />
             </Menu>
 
             <Menu label="Selection">
@@ -26,20 +24,22 @@ export default function TopMenu() {
                 <Item label="Deselect all" />
             </Menu>
 
-            <Menu label="Edit">
-                <Item label="Copy" onClick={act?.copy} disabled={!act?.copy} shortcut="Ctrl+C" />
-                <Item label="Cut" onClick={act?.cut} disabled={!act?.cut} shortcut="Ctrl+X" />
-                <Item label="Paste" onClick={act?.paste} disabled={!act?.paste} shortcut="Ctrl+V" />
-            </Menu>
-
             <Menu label="Operations">
-                <Item label="Copy to other pane" onClick={act?.copyToOther} disabled={!hasOther || !act?.copyToOther} shortcut="Ctrl+Shift+C" />
-                <Item label="Move to other pane" onClick={act?.moveToOther} disabled={!hasOther || !act?.moveToOther} shortcut="Ctrl+Shift+M" />
+                <Item label="Open File" onClick={act?.open} disabled={!act?.open} />
+                <Item label="Delete Selection" onClick={act?.remove} disabled={!act?.remove} />
+                <Sep />
+                <Item label="Copy Selection" onClick={act?.copy} disabled={!act?.copy} shortcut="Ctrl+C" />
+                <Item label="Cut Selection" onClick={act?.cut} disabled={!act?.cut} shortcut="Ctrl+X" />
+                <Item label="Paste Selection" onClick={act?.paste} disabled={!act?.paste} shortcut="Ctrl+V" />
+                <Sep />
+                <Item label="Copy Selection to other pane" onClick={act?.copyToOther} disabled={!hasOther || !act?.copyToOther} shortcut="Ctrl+Shift+C" />
+                <Item label="Move Selection to other pane" onClick={act?.moveToOther} disabled={!hasOther || !act?.moveToOther} shortcut="Ctrl+Shift+M" />
             </Menu>
 
             <Menu label="Navigate">
-                <Item label="Up one level" onClick={act?.goUp} shortcut="Ctrl+↑" />
                 <Item label="Refresh" onClick={act?.refresh} shortcut="Ctrl+R" />
+                <Item label="Up one level" onClick={act?.goUp} shortcut="Ctrl+↑" />
+                <Item label="Back to root" onClick={act?.refresh} shortcut="Ctrl+R" />
             </Menu>
 
             <Menu label="View">
