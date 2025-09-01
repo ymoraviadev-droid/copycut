@@ -22,7 +22,7 @@ export default function Pane({ id }: Props) {
     const { rows, currentPath, rootPath, itemsCount, totalBytes, loadPath, goUp, openEntry } = useFs(view);
     const [isDropHot] = useState(false); // not used (no DnD)
 
-    const resize = useColumnResize(null, [46, 1, 24], 8);
+    const resize = useColumnResize(null, [46, 12, 24], 8);
     const containerRef = resize.containerRef as React.RefObject<HTMLDivElement>;
     const focusDom = () => containerRef.current?.focus();
 
