@@ -1,4 +1,4 @@
-import { ContextMenuItem } from "../../types/ContextMenuItem";
+import { ContextMenuItem } from "../types/ContextMenuItem";
 
 type Props = {
     x: number;

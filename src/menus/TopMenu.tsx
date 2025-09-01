@@ -1,6 +1,6 @@
-import usePaneView from "../../hooks/usePaneView";
-import { useCommander } from "../../store/CommanderContext";
-import Menu from "./Menu";
+import usePaneView from "../hooks/usePaneView";
+import { useCommander } from "../store/CommanderContext";
+import Menu from "../components/menu/Menu";
 
 export default function TopMenu() {
     const { activePane, getPeerPath, getActiveActions } = useCommander();
