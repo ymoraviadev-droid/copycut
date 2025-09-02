@@ -1,4 +1,4 @@
-import { fmtBytes } from "../../utils/fileDataParse";
+import { fmtBytes } from "../../utils/fileDataHelpers";
 
 type Props = {
     currentPath: string;

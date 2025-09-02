@@ -3,7 +3,7 @@ import React, { useEffect, useState } from "react";
 import ColumnHeaders from "./table/ColumnHeaders";
 import Row from "./table/Row";
 import StatusBar from "./table/StatusBar";
-import useFs from "../hooks/useFs";
+import useFs from "../hooks/fs/useFs";
 import useColumnResize from "../hooks/useColumnResize";
 import usePaneOps from "../hooks/usePaneOps";
 import useContextMenu from "../hooks/useContextMenu";
