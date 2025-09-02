@@ -23,18 +23,85 @@ export default function useFs(view?: PaneView) {
     // navigation / cancellation
     const loadSeqRef = useRef(0);
     const currentPathRef = useRef("");
-    const currentJobIdRef = useRef("");
-    useEffect(() => {
-        currentPathRef.current = currentPath;
-    }, [currentPath]);
+    const currentScanKeyRef = useRef(""); // path-keyed filtering
+    useEffect(() => { currentPathRef.current = currentPath; }, [currentPath]);
 
-    // per-folder bookkeeping
+    // per-folder bookkeeping (for *current* path)
     const knownDirBytesRef = useRef<Map<string, number>>(new Map());
     const nameToRowIndexRef = useRef<Map<string, number>>(new Map());
     const runningTotalRef = useRef<number>(0);
 
-    // Track which directories are currently being scanned
+    // Which subdirs are actively scanning (incomplete cache)
     const scanningDirsRef = useRef<Set<string>>(new Set());
+
+    // UI batching for progress (throttle)
+    const pendingProgressRef = useRef<Map<string, number>>(new Map()); // name -> latest bytes
+    const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const lastFlushedBytesRef = useRef<number>(0); // for big-jump forcing
+    const currentFlushScanKeyRef = useRef<string>("");
+
+    function scheduleFlushProgress(scanKey: string) {
+        // if scanKey changed, cancel old flush
+        if (currentFlushScanKeyRef.current !== scanKey) {
+            if (flushTimerRef.current) { clearTimeout(flushTimerRef.current); flushTimerRef.current = null; }
+            currentFlushScanKeyRef.current = scanKey;
+            lastFlushedBytesRef.current = 0;
+        }
+        if (flushTimerRef.current) return;
+        flushTimerRef.current = setTimeout(() => {
+            flushTimerRef.current = null;
+            flushProgressNow(scanKey);
+        }, 100); // ~10fps
+    }
+
+    function flushProgressNow(expectedScanKey: string) {
+        // Ignore if navigated away
+        if (expectedScanKey !== currentScanKeyRef.current) {
+            pendingProgressRef.current.clear();
+            return;
+        }
+        if (pendingProgressRef.current.size === 0) return;
+
+        let totalDelta = 0;
+        const updates: Array<{ idx: number; bytes: number; name: string }> = [];
+
+        pendingProgressRef.current.forEach((bytes, name) => {
+            pendingProgressRef.current.delete(name);
+            if (!scanningDirsRef.current.has(name)) return;
+
+            const prev = knownDirBytesRef.current.get(name) ?? 0;
+            const bounded = Math.max(prev, bytes); // monotonic
+            if (bounded === prev) return;
+
+            knownDirBytesRef.current.set(name, bounded);
+            const idx = nameToRowIndexRef.current.get(name);
+            if (idx != null) updates.push({ idx, bytes: bounded, name });
+            totalDelta += (bounded - prev);
+        });
+
+        if (updates.length === 0 && totalDelta === 0) return;
+
+        // monotonic total: never decrease
+        if (totalDelta > 0) {
+            runningTotalRef.current += totalDelta;
+            setTotalBytes(runningTotalRef.current);
+        }
+
+        if (updates.length) {
+            setRows(prev => {
+                const next = [...prev];
+                for (const u of updates) {
+                    const r = next[u.idx];
+                    if (!r) continue;
+                    next[u.idx] = { ...r, size: `${fmtSize(u.bytes)} (scanning…)` };
+                }
+                return next;
+            });
+        }
+    }
+
+    const ignores: string[] = []; // add your ignores here if you expose them
+    //const ignoresSig = (arr: string[]) => [...arr].sort().join(",");
 
     function extOf(name: string) {
         const i = name.lastIndexOf(".");
@@ -48,15 +115,9 @@ export default function useFs(view?: PaneView) {
         }
         let res = 0;
         switch (v.sortKey) {
-            case "name":
-                res = a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
-                break;
-            case "size":
-                res = (a.size || 0) - (b.size || 0);
-                break;
-            case "date":
-                res = (a.modified || "").localeCompare(b.modified || "");
-                break;
+            case "name": res = a.name.localeCompare(b.name, undefined, { sensitivity: "base" }); break;
+            case "size": res = (a.size || 0) - (b.size || 0); break;
+            case "date": res = (a.modified || "").localeCompare(b.modified || ""); break;
             case "type":
                 res = extOf(a.name).localeCompare(extOf(b.name));
                 if (res === 0) res = a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
@@ -66,78 +127,59 @@ export default function useFs(view?: PaneView) {
         return res;
     }
 
-    // ---- EVENTS READY BARRIER ---------------------------------------------------
+    // ----- events barrier -----
     const eventsReadyPromiseRef = useRef<Promise<void> | null>(null);
     const eventsReadyResolveRef = useRef<(() => void) | null>(null);
     if (!eventsReadyPromiseRef.current) {
-        eventsReadyPromiseRef.current = new Promise<void>((res) => {
-            eventsReadyResolveRef.current = res;
-        });
+        eventsReadyPromiseRef.current = new Promise<void>((res) => { eventsReadyResolveRef.current = res; });
     }
-    async function waitEventsReady() {
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-        await eventsReadyPromiseRef.current!;
-    }
+    async function waitEventsReady() { await eventsReadyPromiseRef.current!; }
 
-    // ---- subscribe ONCE; resolve the barrier when handlers are attached --------
     useEffect(() => {
         let unsubs: UnlistenFn[] = [];
         (async () => {
-            // progress: עדכון ביניים לעמודת Size ולסכום הכולל
+            // PROGRESS (batched + monotonic)
             unsubs.push(
-                await listen<PathSizerProgressEvent>("dir_size:progress", (evt) => {
-                    const p = evt.payload as unknown as { job_id: string; name: string; bytes: number };
-                    if (!p || p.job_id !== currentJobIdRef.current) return;
-
-                    // אם התיקיה כבר סומנה כסיימה, נתעלם מאירועי התקדמות
+                await listen<PathSizerProgressEvent | any>("dir_size:progress", (evt) => {
+                    const p = evt.payload as any;
+                    if (!p || p.scan_key !== currentScanKeyRef.current) return;
                     if (!scanningDirsRef.current.has(p.name)) return;
 
-                    const prev = knownDirBytesRef.current.get(p.name) ?? 0;
-                    const nextBytes = p.bytes;
+                    // accumulate; flush throttled
+                    // also force immediate flush on big jumps (>= 8MB) to keep UI lively
+                    const prev = pendingProgressRef.current.get(p.name) ?? 0;
+                    const nextVal = Math.max(prev, p.bytes); // keep monotonic in pending too
+                    pendingProgressRef.current.set(p.name, nextVal);
 
-                    // שמירת ערך ביניים לתיקייה
-                    knownDirBytesRef.current.set(p.name, nextBytes);
-
-                    // עדכון דלתא ל-totalBytes
-                    const delta = nextBytes - prev;
-                    if (delta !== 0) {
-                        runningTotalRef.current += delta;
-                        setTotalBytes(runningTotalRef.current);
-                    }
-
-                    // עדכון שורת התיקייה (scanning…)
-                    const idx = nameToRowIndexRef.current.get(p.name);
-                    if (idx != null) {
-                        setRows((prevRows) => {
-                            const next = [...prevRows];
-                            const r = next[idx];
-                            if (r) {
-                                next[idx] = {
-                                    ...r,
-                                    size: `${fmtSize(nextBytes)} (scanning…)`,
-                                };
-                            }
-                            return next;
-                        });
+                    const bigJump = (nextVal - lastFlushedBytesRef.current) >= (8 * 1024 * 1024);
+                    if (bigJump) {
+                        lastFlushedBytesRef.current = nextVal;
+                        // immediate flush
+                        if (flushTimerRef.current) { clearTimeout(flushTimerRef.current); flushTimerRef.current = null; }
+                        flushProgressNow(currentScanKeyRef.current);
+                    } else {
+                        scheduleFlushProgress(currentScanKeyRef.current);
                     }
                 })
             );
 
-            // child: ערך סופי לתיקיית-בן + דלתא ל-total
+            // CHILD (final for a subdir) — immediate, monotonic
             unsubs.push(
-                await listen<PathSizerChildEvent>("dir_size:child", (evt) => {
-                    const p = evt.payload as unknown as { job_id: string; name: string; bytes: number };
-                    if (!p || p.job_id !== currentJobIdRef.current) return;
+                await listen<PathSizerChildEvent | any>("dir_size:child", (evt) => {
+                    const p = evt.payload as any;
+                    if (!p || p.scan_key !== currentScanKeyRef.current) return;
+
+                    // remove any pending progress for this dir (we're final now)
+                    pendingProgressRef.current.delete(p.name);
 
                     const prev = knownDirBytesRef.current.get(p.name) ?? 0;
-                    knownDirBytesRef.current.set(p.name, p.bytes);
+                    const boundedFinal = Math.max(prev, p.bytes); // monotonic
 
-                    // סיום סריקת התיקיה הזו
+                    knownDirBytesRef.current.set(p.name, boundedFinal);
                     scanningDirsRef.current.delete(p.name);
 
-                    // עדכון דלתא לפני UI
-                    const delta = p.bytes - prev;
-                    if (delta !== 0) {
+                    const delta = boundedFinal - prev;
+                    if (delta > 0) {
                         runningTotalRef.current += delta;
                         setTotalBytes(runningTotalRef.current);
                     }
@@ -145,35 +187,33 @@ export default function useFs(view?: PaneView) {
                     const idx = nameToRowIndexRef.current.get(p.name);
                     if (idx == null) return;
 
-                    setRows((prev) => {
-                        const next = [...prev];
+                    setRows(prevRows => {
+                        const next = [...prevRows];
                         const r = next[idx];
-                        if (r) {
-                            next[idx] = {
-                                ...r,
-                                displayName: `${r.realName} /`,
-                                size: fmtSize(p.bytes), // ערך סופי, בלי "(scanning…)"
-                            };
-                        }
+                        if (r) next[idx] = { ...r, displayName: `${r.realName} /`, size: fmtSize(boundedFinal) };
                         return next;
                     });
                 })
             );
 
-            // summary: ערך סיכום סופי וניקוי מצבים
+            // SUMMARY (final for current folder)
             unsubs.push(
-                await listen<PathSizerSummaryEvent>("dir_size:summary", (evt) => {
-                    const p = evt.payload;
-                    if (!p || p.job_id !== currentJobIdRef.current) return;
-                    runningTotalRef.current = p.bytes;
-                    setTotalBytes(p.bytes);
+                await listen<PathSizerSummaryEvent | any>("dir_size:summary", (evt) => {
+                    const p = evt.payload as any;
+                    if (!p || p.scan_key !== currentScanKeyRef.current) return;
 
-                    // Clear all scanning states
+                    // clear any pending progress; this scan is done
+                    pendingProgressRef.current.clear();
+                    if (flushTimerRef.current) { clearTimeout(flushTimerRef.current); flushTimerRef.current = null; }
+
+                    // total monotonically increases or stays
+                    const boundedTotal = Math.max(runningTotalRef.current, p.bytes);
+                    runningTotalRef.current = boundedTotal;
+                    setTotalBytes(boundedTotal);
                     scanningDirsRef.current.clear();
 
-                    // ניקוי שאריות טקסט ביניים בשם התצוגה
-                    setRows((prev) =>
-                        prev.map((r) => {
+                    setRows(prev =>
+                        prev.map(r => {
                             if (!r?.isDir || (r as any).specialUp) return r;
                             const nm = r.realName;
                             return nm ? { ...r, displayName: `${nm} /` } : r;
@@ -182,142 +222,145 @@ export default function useFs(view?: PaneView) {
                 })
             );
 
-            // listeners are attached — release the barrier
             eventsReadyResolveRef.current?.();
         })().catch(console.error);
 
         return () => {
-            for (const u of unsubs) {
-                try {
-                    u();
-                } catch { }
-            }
+            for (const u of unsubs) { try { u(); } catch { } }
             unsubs = [];
             scanningDirsRef.current.clear();
-            // don't reset the barrier; listeners stay attached for the app lifetime
+            pendingProgressRef.current.clear();
+            if (flushTimerRef.current) { clearTimeout(flushTimerRef.current); flushTimerRef.current = null; }
         };
     }, []);
 
-    // --- main loader ------------------------------------------------------------
+    // --- main loader ---
     async function loadPath(p: string) {
         const token = ++loadSeqRef.current;
-        const jobId = `ps-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-        // Store current job ID for event filtering
-        currentJobIdRef.current = jobId;
-
-        knownDirBytesRef.current = new Map();
-        nameToRowIndexRef.current = new Map();
-        runningTotalRef.current = 0;
-        scanningDirsRef.current.clear();
-
-        const entries = (await invoke<FileEntry[]>("list_dir", { path: p })) ?? [];
         const v = view || { showHidden: false, sortKey: "name", sortDir: "asc", dirsFirst: true };
-        const filtered = v.showHidden ? entries : entries.filter((e) => !e.name.startsWith("."));
+        const scanKey = `${p}|${!!v.showHidden}|${[...ignores].sort().join(",")}`; // must match backend
+        currentScanKeyRef.current = scanKey;
+
+        // read dir
+        const entries = (await invoke<FileEntry[]>("list_dir", { path: p })) ?? [];
+        const filtered = v.showHidden ? entries : entries.filter(e => !e.name.startsWith("."));
         const sorted = [...filtered].sort(compare);
 
-        setItemsCount(sorted.length);
-        const levelFilesBytes = sorted.filter((e) => !e.is_dir).reduce((s, e) => s + (e.size || 0), 0);
-        runningTotalRef.current = levelFilesBytes;
-        setTotalBytes(levelFilesBytes);
+        const nameIndex = new Map<string, number>();
+        const levelFilesBytes = sorted.filter(e => !e.is_dir).reduce((s, e) => s + (e.size || 0), 0);
+
+        // Prefill from cache
+        const childDirs = sorted.filter(e => e.is_dir);
+        const childFullPaths = await Promise.all(childDirs.map(e => join(p, e.name)));
+        let cached: Array<null | [number, number, boolean]> = [];
+        try {
+            cached = await invoke<Array<null | [number, number, boolean]>>("get_cached_sizes", {
+                paths: childFullPaths,
+                show_hidden: !!v.showHidden,
+                showHidden: !!v.showHidden, // harmless extra param
+                ignores: ignores as string[],
+            });
+        } catch {
+            cached = new Array(childDirs.length).fill(null);
+        }
+        if (token !== loadSeqRef.current) return;
+
+        // reset state for this path
+        knownDirBytesRef.current = new Map();
+        nameToRowIndexRef.current = new Map();
+        scanningDirsRef.current.clear();
+        pendingProgressRef.current.clear();
+        if (flushTimerRef.current) { clearTimeout(flushTimerRef.current); flushTimerRef.current = null; }
 
         const up: RowType = { displayName: "..", isDir: true, size: "", date: "", specialUp: true };
-        const mapped: RowType[] = sorted.map((e) => ({
-            displayName: `${e.name}${e.is_dir ? " /" : ""}`,
-            isDir: e.is_dir,
-            size: fmtSize(e.is_dir ? 0 : e.size || 0),
-            date: `${getDate(e.modified)} ${getTime(e.modified)}`,
-            realName: e.name,
-        }));
+        const rowsBuilt: RowType[] = [up];
 
-        const nameIndex = new Map<string, number>();
-        sorted.forEach((e, i) => {
-            nameIndex.set(e.name, i + 1);
-        });
+        let sumCachedDirs = 0;
+        let needsScan = false;
+
+        for (let i = 0; i < sorted.length; i++) {
+            const e = sorted[i];
+
+            if (!e.is_dir) {
+                rowsBuilt.push({
+                    displayName: e.name,
+                    isDir: false,
+                    size: fmtSize(e.size || 0),
+                    date: `${getDate(e.modified)} ${getTime(e.modified)}`,
+                    realName: e.name,
+                });
+                nameIndex.set(e.name, rowsBuilt.length - 1);
+                continue;
+            }
+
+            const cacheIdx = childDirs.findIndex(cd => cd.name === e.name);
+            const maybe = cacheIdx >= 0 ? cached[cacheIdx] : null;
+
+            let initialBytes = 0;
+            let completed = false;
+
+            if (maybe) {
+                initialBytes = maybe[0] ?? 0;
+                completed = !!maybe[2];
+            }
+
+            knownDirBytesRef.current.set(e.name, initialBytes);
+            if (!completed) {
+                scanningDirsRef.current.add(e.name);
+                needsScan = true;
+            }
+
+            sumCachedDirs += initialBytes;
+
+            rowsBuilt.push({
+                displayName: `${e.name} /`,
+                isDir: true,
+                size: completed
+                    ? fmtSize(initialBytes)
+                    : `${fmtSize(initialBytes)}${initialBytes ? " " : ""}(scanning…)`,
+                date: `${getDate(e.modified)} ${getTime(e.modified)}`,
+                realName: e.name,
+            });
+            nameIndex.set(e.name, rowsBuilt.length - 1);
+        }
+
+        setItemsCount(sorted.length);
+
+        // total should not drop below previous known total for this path in fast navs,
+        // but since scanKey changes only on this path, we can safely reset to the
+        // prefill sum here, and the batching will only increase it.
+        runningTotalRef.current = levelFilesBytes + sumCachedDirs;
+        setTotalBytes(runningTotalRef.current);
+
         nameToRowIndexRef.current = nameIndex;
+        setRows(rowsBuilt);
 
-        setRows([up, ...mapped]);
-
-        // set the ref BEFORE starting any sizing so early events match
+        // set after paint
         currentPathRef.current = p;
         setCurrentPath(p);
 
-        // prefill from cache
-        const childDirs = sorted.filter((e) => e.is_dir);
-        const childFullPaths = await Promise.all(childDirs.map((e) => join(p, e.name)));
-        try {
-            const cached = await invoke<Array<null | [number, number, boolean]>>("get_cached_sizes", {
-                paths: childFullPaths,
-                show_hidden: !!v.showHidden,
-                showHidden: !!v.showHidden,
-                ignores: [] as string[],
-            });
-
-            if (token !== loadSeqRef.current) return;
-
-            // Mark uncached directories as scanning
-            childDirs.forEach((e, idx) => {
-                const maybe = cached[idx];
-                if (!maybe) {
-                    scanningDirsRef.current.add(e.name);
-                }
-            });
-
-            let added = 0;
-            cached.forEach((maybe, idx) => {
-                if (!maybe) return;
-                const bytes = maybe[0];
-                const items = maybe[1];
-                const name = childDirs[idx].name;
-                const rowIdx = nameIndex.get(name);
-                knownDirBytesRef.current.set(name, bytes);
-
-                if (rowIdx != null) {
-                    setRows((prev) => {
-                        const next = [...prev];
-                        const r = next[rowIdx];
-                        if (r) {
-                            next[rowIdx] = {
-                                ...r,
-                                displayName: `${name} /`,
-                                size:
-                                    items != null
-                                        ? `${fmtSize(bytes)} · ${items} item${items === 1 ? "" : "s"}`
-                                        : fmtSize(bytes),
-                            };
-                        }
-                        return next;
-                    });
-                }
-                added += bytes;
-            });
-
-            if (added) {
-                runningTotalRef.current = levelFilesBytes + added;
-                setTotalBytes(runningTotalRef.current);
-            }
-        } catch {
-            // If cache lookup fails, mark all dirs as scanning
-            childDirs.forEach((e) => scanningDirsRef.current.add(e.name));
-        }
-
         if (token !== loadSeqRef.current) return;
-
-        // <<< WAIT FOR LISTENERS BEFORE STARTING THE SIZER >>>
         await waitEventsReady();
 
-        try {
-            await invoke("ensure_path_sizer", {
-                path: p,
-                jobId,
-                job_id: jobId,
-                show_hidden: !!v.showHidden,
-                showHidden: !!v.showHidden,
-                ignores: [] as string[],
-            });
-        } catch (e) {
-            console.error("ensure_path_sizer failed:", e);
-            scanningDirsRef.current.clear();
+        // Start backend only if needed
+        if (needsScan) {
+            try {
+                const jobId = `ps-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                await invoke("ensure_path_sizer", {
+                    path: p,
+                    jobId,
+                    job_id: jobId,
+                    show_hidden: !!v.showHidden,
+                    showHidden: !!v.showHidden,
+                    ignores: ignores as string[],
+                });
+            } catch (e) {
+                console.error("ensure_path_sizer failed:", e);
+                scanningDirsRef.current.clear();
+                pendingProgressRef.current.clear();
+                if (flushTimerRef.current) { clearTimeout(flushTimerRef.current); flushTimerRef.current = null; }
+            }
         }
     }
 
@@ -330,10 +373,7 @@ export default function useFs(view?: PaneView) {
     async function openEntry(index: number) {
         const r = rows[index];
         if (!r) return;
-        if ((r as any).specialUp) {
-            await goUp();
-            return;
-        }
+        if ((r as any).specialUp) { await goUp(); return; }
         const full = await join(currentPath, r.realName!);
         if (r.isDir) await loadPath(full);
         else await openWithDefaultApp(full);

@@ -10,7 +10,6 @@ pub fn run() {
             api::fs_ops::delete_paths,
             api::fs_ops::rename_path,
             api::devtools::toggle_devtools,
-            api::dir_size::dir_size,
             api::path_sizer::get_cached_sizes,
             api::path_sizer::ensure_path_sizer
         ])
