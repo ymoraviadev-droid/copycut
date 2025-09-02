@@ -6,9 +6,7 @@ import type { FileEntry } from "../../types/FileEntry";
 import type { RowType } from "../../types/RowType";
 import { compare, fmtSize, getDate, getTime } from "../../utils/fileDataHelpers";
 import { PaneView } from "../../types/PaneTypes";
-import type { PathSizerChildEvent } from "../../types/PathSizerChildEvent";
-import type { PathSizerSummaryEvent } from "../../types/PathSizerSummaryEvent";
-import type { PathSizerProgressEvent } from "../../types/PathSizerProgressEvent";
+import type { PathSizerChildEvent, PathSizerProgressEvent, PathSizerSummaryEvent } from "../../types/PathSizerTypes";
 import useFsHookStart from "./useFsHookStart";
 import { goUpNav, openEntryNav } from "../../utils/fsNav";
 
