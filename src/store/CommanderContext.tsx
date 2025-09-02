@@ -88,7 +88,15 @@ export function CommanderProvider({ children }: { children: React.ReactNode }) {
 
         registerActions(id, a) { actions.current[id] = a; },
         getActions(id) { return actions.current[id]; },
-        getActiveActions() { return actions.current[activePane]; },
+        getActiveActions() {
+            console.log(activePane);
+            console.log(actions.current);
+            console.log(actions.current.left);
+            console.log(actions.current[activePane]);
+
+
+            return actions.current[activePane];
+        },
 
         clipboard, setClipboard,
         dragPaths, setDragPaths,

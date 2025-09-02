@@ -11,7 +11,8 @@ pub fn run() {
             api::fs_ops::rename_path,
             api::devtools::toggle_devtools,
             api::path_sizer::get_cached_sizes,
-            api::path_sizer::ensure_path_sizer
+            api::path_sizer::ensure_path_sizer,
+            api::app::exit
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
