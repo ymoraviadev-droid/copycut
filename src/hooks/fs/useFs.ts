@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { homeDir, join } from "@tauri-apps/api/path";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -25,6 +25,9 @@ export default function useFs(view?: PaneView) {
         pendingProgressRef, flushTimerRef, lastFlushedBytesRef,
         loadSeqRef, currentPathRef, eventsReadyResolveRef
     } = useFsProgressRefs(setTotalBytes, setRows, currentPath);
+
+    const rowsRef = useRef<RowType[]>([]);
+    useEffect(() => { rowsRef.current = rows; }, [rows]);
 
     const ignores: string[] = []; // add your ignores here if you expose them
 
@@ -257,6 +260,16 @@ export default function useFs(view?: PaneView) {
         }
     }
 
+    // stable wrappers (don’t recreate on every render)
+    const goUp = useCallback(async () => {
+        await goUpNav(currentPath, rootPath, loadPath);
+    }, [currentPath, rootPath, loadPath]);
+
+    const openEntry = useCallback(async (index: number) => {
+        await openEntryNav(index, rowsRef.current, currentPath, rootPath, loadPath);
+    }, [currentPath, rootPath, loadPath]);
+
+
     // initial load
     useEffect(() => {
         (async () => {
@@ -284,7 +297,7 @@ export default function useFs(view?: PaneView) {
         itemsCount: itemsCountMemo,
         totalBytes: totalBytesMemo,
         loadPath,
-        goUp: async () => await goUpNav(currentPath, rootPath, loadPath),
-        openEntry: async (index: number) => await openEntryNav(index, rows, currentPath, rootPath, loadPath)
+        goUp,
+        openEntry
     };
 }
