@@ -1,122 +1,33 @@
-// src/api/path_sizer.rs
-use once_cell::sync::Lazy;
-use serde::Serialize;
+use crate::api::types::{CacheEntry, ChildEvent, Job, ProgressEvent, SummaryEvent};
 use std::{
     collections::HashMap,
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc,
     },
     time::{Duration, Instant, SystemTime},
 };
 use tauri::{AppHandle, Emitter};
 
-/// Key used for the cache (canonicalized path to avoid dup keys)
-#[derive(Hash, Eq, PartialEq, Clone)]
-struct CacheKey {
-    path: PathBuf,
-    show_hidden: bool,
-    ignores_sig: String, // comma-joined; simple contains semantics; sorted
-}
+use super::{
+    cache::SIZE_CACHE,
+    jobs::JOBS,
+    keys::{make_cache_key, make_scan_key, should_skip},
+};
 
-#[derive(Clone)]
-struct CacheEntry {
-    bytes: u64,
-    items: u64,
-    completed: bool, // true only when a full scan finished
-    _updated_at: SystemTime,
-}
-
-/// A running job tracked by a stable SCAN KEY (string)
-struct Job {
-    _key: CacheKey,
-    cancel: Arc<AtomicBool>,
-}
-
-static SIZE_CACHE: Lazy<Mutex<HashMap<CacheKey, CacheEntry>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
-
-/// Active jobs keyed by SCAN KEY (not job_id!)
-static JOBS: Lazy<Mutex<HashMap<String, Job>>> = Lazy::new(|| Mutex::new(HashMap::new()));
-
-#[derive(Serialize, Clone)]
-struct ChildEvent {
-    // kept for compatibility (unused in new UI filtering)
-    job_id: String,
-    // NEW: stable key identifying this root scan (root path + options)
-    scan_key: String,
-    name: String,
-    bytes: u64,
-}
-
-#[derive(Serialize, Clone)]
-struct SummaryEvent {
-    job_id: String,
-    scan_key: String,
-    bytes: u64,
-}
-
-#[derive(Serialize, Clone)]
-struct ProgressEvent {
-    job_id: String,
-    scan_key: String,
-    bytes: u64,
-    name: String,
-}
-
-// ---------- helpers ----------
-
-fn normalize_path(p: &str) -> PathBuf {
-    // Canonicalize for cache-key stability; if it fails, fall back
-    std::fs::canonicalize(p).unwrap_or_else(|_| PathBuf::from(p))
-}
-
-/// Deterministic signature of ignores (sorted, comma-joined)
-fn ignores_sig(ignores: &[String]) -> String {
-    let mut ig = ignores.to_vec();
-    ig.sort();
-    ig.join(",")
-}
-
-fn make_cache_key(path: &str, show_hidden: bool, ignores: &[String]) -> CacheKey {
-    CacheKey {
-        path: normalize_path(path),
-        show_hidden,
-        ignores_sig: ignores_sig(ignores),
-    }
-}
-
-/// SCAN KEY used in events & JOBS map — uses the RAW path (so the UI can compute it easily)
-fn make_scan_key(raw_path: &str, show_hidden: bool, ignores: &[String]) -> String {
-    format!("{}|{}|{}", raw_path, show_hidden, ignores_sig(ignores))
-}
-
-fn should_skip(name: &str, show_hidden: bool, ignores: &[String]) -> bool {
-    if !show_hidden && name.starts_with('.') {
-        return true;
-    }
-    ignores.iter().any(|ig| name.contains(ig))
-}
-
-/// Ensure a size worker is running for `path`. Emits:
-/// - "dir_size:child" for each immediate subfolder
-/// - "dir_size:summary" for the full folder total
-///
-/// NOTE: `job_id` is deprecated for filtering; events are keyed by `scan_key`.
-#[tauri::command]
-pub fn ensure_path_sizer(
+pub fn ensure_path_sizer_impl(
     app: AppHandle,
     path: String,
-    job_id: String, // kept for compatibility (unused in JOBS indexing)
+    job_id: String, // kept for compat; UI filters by scan_key
     show_hidden: bool,
     ignores: Vec<String>,
 ) -> Result<(), String> {
-    // keys
+    // derive keys
     let cache_key = make_cache_key(&path, show_hidden, &ignores);
     let scan_key = make_scan_key(&path, show_hidden, &ignores);
 
-    // Ensure only one scan per (path+options) — cancel any existing job for this scan_key.
+    // ensure one job per scan_key
     {
         let mut jobs = JOBS.lock().map_err(|e| e.to_string())?;
         if let Some(old) = jobs.remove(&scan_key) {
@@ -136,14 +47,17 @@ pub fn ensure_path_sizer(
         jobs.get(&scan_key).unwrap().cancel.clone()
     };
 
-    // Spawn the worker
+    // spawn the worker
     tauri::async_runtime::spawn({
         let app = app.clone();
         let path = path.clone();
+        let job_id = job_id.clone();
+        let scan_key = scan_key.clone();
+
         async move {
             let root = PathBuf::from(&path);
 
-            // 1) List immediate children once; sum root-level files immediately.
+            // list immediate children & sum root-level files
             let mut child_dirs: Vec<String> = Vec::new();
             let mut root_files_total: u64 = 0;
 
@@ -166,12 +80,12 @@ pub fn ensure_path_sizer(
                 }
             }
 
-            // Limit concurrency
+            // limit concurrency
             let sem = Arc::new(tokio::sync::Semaphore::new(4));
             let mut tasks = Vec::with_capacity(child_dirs.len());
             let mut child_totals: HashMap<String, u64> = HashMap::new();
 
-            // Snapshot cache
+            // snapshot cache for quick emits
             let cache_snapshot = SIZE_CACHE
                 .lock()
                 .ok()
@@ -187,7 +101,7 @@ pub fn ensure_path_sizer(
                 let child_cache_key =
                     make_cache_key(child_abs.to_string_lossy().as_ref(), show_hidden, &ignores);
 
-                // 1) snapshot: if completed, emit & skip; if partial, seed progress
+                // 1) snapshot check
                 if let Some(entry) = cache_snapshot.get(&child_cache_key) {
                     if entry.completed {
                         let _ = app.emit(
@@ -214,7 +128,7 @@ pub fn ensure_path_sizer(
                     }
                 }
 
-                // 2) live cache: may have been updated by another job just now
+                // 2) live cache check
                 let mut skip_scan = false;
                 let mut cached_bytes = 0u64;
                 if let Ok(cache) = SIZE_CACHE.lock() {
@@ -249,24 +163,30 @@ pub fn ensure_path_sizer(
                     continue;
                 }
 
-                // 3) scan this child directory with a permit
+                // 3) scan with a permit
                 let permit = sem.clone().acquire_owned().await.unwrap();
+
+                // per-task clones (IMPORTANT: don't move the original `cancel`)
+                let cancel_task = cancel.clone();
+
+                // values used AFTER scan (kept here)
                 let app2 = app.clone();
                 let job_id2 = job_id.clone();
-                let cancel2 = cancel.clone();
+                let scan_key2 = scan_key.clone();
                 let root2 = root.clone();
                 let name2 = name.clone();
                 let ignores2 = ignores.clone();
-                let scan_key2 = scan_key.clone();
 
+                // values for the blocking worker (distinct clones)
                 let app_for_progress = app2.clone();
                 let job_id_for_progress = job_id2.clone();
-                let name_for_progress = name2.clone();
                 let scan_key_for_progress = scan_key2.clone();
+                let name_for_progress = name2.clone();
 
                 tasks.push(tauri::async_runtime::spawn(async move {
                     let _p = permit;
-                    if cancel2.load(Ordering::SeqCst) {
+
+                    if cancel_task.load(Ordering::SeqCst) {
                         return (name2, 0u64);
                     }
 
@@ -274,11 +194,14 @@ pub fn ensure_path_sizer(
                     let dir_path_for_block = dir_path.clone();
                     let ignores_for_block = ignores2.clone();
 
-                    // return (bytes, finished)
+                    // clone for the blocking thread as well
+                    let cancel_block = cancel_task.clone();
+
+                    // compute bytes inside spawn_blocking
                     let (bytes, finished) = tauri::async_runtime::spawn_blocking(move || {
                         let mut sum: u64 = 0;
 
-                        // throttle state
+                        // throttle
                         let mut last_emit_at = Instant::now()
                             .checked_sub(Duration::from_millis(200))
                             .unwrap_or_else(Instant::now);
@@ -292,7 +215,7 @@ pub fn ensure_path_sizer(
                             .into_iter()
                             .filter_map(|e| e.ok())
                         {
-                            if cancel2.load(Ordering::SeqCst) {
+                            if cancel_block.load(Ordering::SeqCst) {
                                 canceled = true;
                                 break;
                             }
@@ -310,7 +233,7 @@ pub fn ensure_path_sizer(
                                     let due_time =
                                         last_emit_at.elapsed() >= Duration::from_millis(100);
                                     let big_jump =
-                                        sum.saturating_sub(last_emitted_bytes) >= 8 * 1024 * 1024; // 8MB
+                                        sum.saturating_sub(last_emitted_bytes) >= 8 * 1024 * 1024;
                                     let many_files = files_since_emit >= 200;
 
                                     if due_time || big_jump || many_files {
@@ -335,9 +258,9 @@ pub fn ensure_path_sizer(
                             let _ = app_for_progress.emit(
                                 "dir_size:progress",
                                 ProgressEvent {
-                                    job_id: job_id_for_progress.clone(),
-                                    scan_key: scan_key_for_progress.clone(),
-                                    name: name_for_progress.clone(),
+                                    job_id: job_id_for_progress,
+                                    scan_key: scan_key_for_progress,
+                                    name: name_for_progress,
                                     bytes: sum,
                                 },
                             );
@@ -348,7 +271,7 @@ pub fn ensure_path_sizer(
                     .await
                     .unwrap_or((0, false));
 
-                    // cache child (completed only if finished fully)
+                    // update cache for the child
                     let child_cache_key =
                         make_cache_key(dir_path.to_string_lossy().as_ref(), show_hidden, &ignores2);
                     if let Ok(mut cache) = SIZE_CACHE.lock() {
@@ -358,17 +281,17 @@ pub fn ensure_path_sizer(
                                 bytes,
                                 items: 0,
                                 completed: finished,
-                                _updated_at: std::time::SystemTime::now(),
+                                _updated_at: SystemTime::now(),
                             },
                         );
                     }
 
-                    // emit child final
+                    // emit final child
                     let _ = app2.emit(
                         "dir_size:child",
                         ChildEvent {
-                            job_id: job_id2.clone(),
-                            scan_key: scan_key2.clone(),
+                            job_id: job_id2,
+                            scan_key: scan_key2,
                             name: name2.clone(),
                             bytes,
                         },
@@ -378,7 +301,7 @@ pub fn ensure_path_sizer(
                 }));
             }
 
-            // Collect task results
+            // collect
             for t in tasks {
                 if let Ok((name, bytes)) = t.await {
                     child_totals.insert(name, bytes);
@@ -388,16 +311,16 @@ pub fn ensure_path_sizer(
                 }
             }
 
-            // If canceled: stop (don’t emit summary), and drop the job
+            // canceled? drop job & bail
             if cancel.load(Ordering::SeqCst) {
                 let _ = JOBS.lock().map(|mut j| j.remove(&scan_key));
                 return;
             }
 
-            // Summary = root files + sum of all child totals + root-level files
+            // summary
             let total: u64 = root_files_total + child_totals.values().copied().sum::<u64>();
 
-            // Cache root result as completed
+            // cache root
             if let Ok(mut cache) = SIZE_CACHE.lock() {
                 cache.insert(
                     cache_key,
@@ -410,7 +333,7 @@ pub fn ensure_path_sizer(
                 );
             }
 
-            // Emit summary
+            // emit summary
             let _ = app.emit(
                 "dir_size:summary",
                 SummaryEvent {
@@ -420,31 +343,10 @@ pub fn ensure_path_sizer(
                 },
             );
 
-            // Drop job
+            // drop job
             let _ = JOBS.lock().map(|mut j| j.remove(&scan_key));
         }
     });
 
     Ok(())
-}
-
-/// Optional: query multiple paths from cache (used for prefill).
-#[tauri::command]
-pub fn get_cached_sizes(
-    paths: Vec<String>,
-    show_hidden: bool,
-    ignores: Vec<String>,
-) -> Result<Vec<Option<(u64, u64, bool)>>, String> {
-    let key_for = |p: &str| make_cache_key(p, show_hidden, &ignores);
-    let cache = SIZE_CACHE.lock().map_err(|e| e.to_string())?;
-    let mut out = Vec::with_capacity(paths.len());
-    for p in paths {
-        let k = key_for(&p);
-        if let Some(entry) = cache.get(&k) {
-            out.push(Some((entry.bytes, entry.items, entry.completed)));
-        } else {
-            out.push(None);
-        }
-    }
-    Ok(out)
 }
