@@ -2,7 +2,7 @@ import { Dispatch, SetStateAction, useEffect, useRef } from "react";
 import { RowType } from "../../types/RowType";
 import { fmtSize } from "../../utils/fileDataHelpers";
 
-export default function useFsProgressRefs(
+export default function useFsHookStart(
     setTotalBytes: Dispatch<SetStateAction<number>>,
     setRows: Dispatch<SetStateAction<RowType[]>>,
     currentPath: string

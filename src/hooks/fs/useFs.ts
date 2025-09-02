@@ -9,7 +9,7 @@ import { PaneView } from "../../types/PaneTypes";
 import type { PathSizerChildEvent } from "../../types/PathSizerChildEvent";
 import type { PathSizerSummaryEvent } from "../../types/PathSizerSummaryEvent";
 import type { PathSizerProgressEvent } from "../../types/PathSizerProgressEvent";
-import useFsProgressRefs from "./useFsProgressRefs";
+import useFsHookStart from "./useFsHookStart";
 import { goUpNav, openEntryNav } from "../../utils/fsNav";
 
 export default function useFs(view?: PaneView) {
@@ -24,7 +24,7 @@ export default function useFs(view?: PaneView) {
         currentScanKeyRef, scanningDirsRef,
         pendingProgressRef, flushTimerRef, lastFlushedBytesRef,
         loadSeqRef, currentPathRef, eventsReadyResolveRef
-    } = useFsProgressRefs(setTotalBytes, setRows, currentPath);
+    } = useFsHookStart(setTotalBytes, setRows, currentPath);
 
     const rowsRef = useRef<RowType[]>([]);
     useEffect(() => { rowsRef.current = rows; }, [rows]);

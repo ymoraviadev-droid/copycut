@@ -53,5 +53,5 @@ pub struct CacheKey {
 
 pub struct Job {
     pub _key: CacheKey,
-    pub cancel: Arc<AtomicBool>,
+    pub _cancel: Arc<AtomicBool>,
 }
