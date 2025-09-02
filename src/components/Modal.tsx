@@ -1,21 +1,6 @@
 import { useRef, useEffect, JSX } from "react";
 import { AiOutlineInfoCircle, AiOutlineWarning, AiOutlineQuestionCircle, AiOutlineCheckCircle, AiOutlineCloseCircle } from "react-icons/ai";
-
-type ModalIcon = "info" | "warn" | "question" | "success" | "error" | undefined;
-
-export type ModalOptions = {
-    title: string;
-    text?: string;
-    isQuestion?: boolean;
-    icon?: ModalIcon;
-    yesText?: string;
-    noText?: string;
-};
-
-type ModalInternalProps = ModalOptions & {
-    resolve: (v: boolean) => void;
-    cleanup: () => void;
-};
+import { ModalIcon, ModalInternalProps } from "../types/ModalTypes";
 
 const iconMap: Record<NonNullable<ModalIcon>, JSX.Element> = {
     info: <AiOutlineInfoCircle className="w-6 h-6" />,
@@ -24,8 +9,8 @@ const iconMap: Record<NonNullable<ModalIcon>, JSX.Element> = {
     success: <AiOutlineCheckCircle className="w-6 h-6" />,
     error: <AiOutlineCloseCircle className="w-6 h-6" />,
 };
-
-export default function ModalBox({ title, text, isQuestion, icon, yesText, noText, resolve, cleanup }: ModalInternalProps) {
+/*  */
+export default function Modal({ title, text, isQuestion, icon, yesText, noText, resolve, cleanup }: ModalInternalProps) {
     const yesRef = useRef<HTMLButtonElement | null>(null);
 
     useEffect(() => {

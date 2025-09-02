@@ -7,7 +7,7 @@ import useFs from "../hooks/fs/useFs";
 import useColumnResize from "../hooks/useColumnResize";
 import usePaneOps from "../hooks/usePaneOps";
 import useContextMenu from "../hooks/useContextMenu";
-import ContextMenu from "../menus/ContextMenu";
+import ContextMenu from "./ContextMenu";
 import usePaneView from "../hooks/usePaneView";
 import { useCommander } from "../store/CommanderContext";
 import { PaneId } from "../types/PaneTypes";

@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback } from "react";
 import usePaneView from "../hooks/usePaneView";
 import { useCommander } from "../store/CommanderContext";
-import Menu from "../components/menu/Menu";
+import Menu from "./menu/Menu";
 import { invoke } from "@tauri-apps/api/core";
 import type { PaneActions } from "../store/CommanderContext";
-import { fire } from "../components/modal/utils/fire";
+import { fire } from "../utils/fire";
 
 export default function TopMenu() {
     const [act, setAct] = useState<PaneActions | undefined>(undefined);

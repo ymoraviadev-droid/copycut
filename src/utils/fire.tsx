@@ -1,5 +1,6 @@
 import { Root, createRoot } from "react-dom/client";
-import ModalBox, { ModalOptions } from "../ModalBox";
+import { ModalOptions } from "../types/ModalTypes";
+import Modal from "../components/Modal";
 
 /** Singleton portal root */
 let portalRoot: Root | null = null;
@@ -10,7 +11,7 @@ function ensureRoot(): Root {
     if (!host) throw new Error('#overlay portal div not found');
     portalRoot = createRoot(host);
     return portalRoot;
-}
+};
 
 export function fire(opts: ModalOptions): Promise<boolean> {
     const root = ensureRoot();
@@ -21,6 +22,6 @@ export function fire(opts: ModalOptions): Promise<boolean> {
             root.render(<></>);
         };
 
-        root.render(<ModalBox {...opts} resolve={resolve} cleanup={cleanup} />);
+        root.render(<Modal {...opts} resolve={resolve} cleanup={cleanup} />);
     });
-}
+};

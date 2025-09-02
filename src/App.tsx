@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import "./App.css";
 import Pane from "./components/Pane";
-import TopMenu from "./menus/TopMenu";
+import TopMenu from "./components/TopMenu";
 
 function App() {
   useEffect(() => {
