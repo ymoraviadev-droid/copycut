@@ -4,7 +4,7 @@ import { useCommander } from "../store/CommanderContext";
 import Menu from "../components/menu/Menu";
 import { invoke } from "@tauri-apps/api/core";
 import type { PaneActions } from "../store/CommanderContext";
-import { fire } from "../components/modal/Modal";
+import { fire } from "../components/modal/utils/fire";
 
 export default function TopMenu() {
     const [act, setAct] = useState<PaneActions | undefined>(undefined);

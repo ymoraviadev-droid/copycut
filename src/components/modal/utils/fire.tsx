@@ -1,5 +1,5 @@
 import { Root, createRoot } from "react-dom/client";
-import ModalBox, { ModalOptions } from "./ModalBox";
+import ModalBox, { ModalOptions } from "../ModalBox";
 
 /** Singleton portal root */
 let portalRoot: Root | null = null;
