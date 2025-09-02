@@ -8,7 +8,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
-    time::SystemTime,
+    time::{Duration, Instant, SystemTime},
 };
 use tauri::{AppHandle, Emitter};
 
@@ -50,6 +50,13 @@ struct ChildEvent {
 struct SummaryEvent {
     job_id: String,
     bytes: u64,
+}
+
+#[derive(Serialize, Clone)]
+struct ProgressEvent {
+    job_id: String,
+    bytes: u64,
+    name: String,
 }
 
 fn make_key(path: &str, show_hidden: bool, ignores: &[String]) -> CacheKey {
@@ -178,27 +185,37 @@ pub fn ensure_path_sizer(
             let name2 = name.clone();
             let ignores2 = ignores.clone();
 
+            let app_for_progress = app2.clone();
+            let job_id_for_progress = job_id2.clone();
+            let name_for_progress = name2.clone();
+
             tasks.push(tauri::async_runtime::spawn(async move {
                 let _p = permit;
                 if cancel2.load(Ordering::SeqCst) {
                     return (name2, 0u64);
                 }
 
-                // Build the child path once
                 let dir_path = root2.join(&name2);
-
-                // Clone what the blocking closure will own
                 let dir_path_for_block = dir_path.clone();
                 let ignores_for_block = ignores2.clone();
 
                 let bytes = tauri::async_runtime::spawn_blocking(move || {
                     let mut sum: u64 = 0;
+                    let mut _file_count = 0;
+
+                    // --- THROTTLE STATE ---
+                    let mut last_emit_at = Instant::now()
+                        .checked_sub(Duration::from_millis(200))
+                        .unwrap_or_else(Instant::now);
+                    let mut last_emitted_bytes: u64 = 0;
+                    let mut files_since_emit: u32 = 0;
+
                     for entry in walkdir::WalkDir::new(&dir_path_for_block)
                         .follow_links(false)
                         .into_iter()
                         .filter_map(|e| e.ok())
                     {
-                        // Opportunistic cancel check (cheap)
+                        // Opportunistic cancel
                         if cancel2.load(Ordering::SeqCst) {
                             break;
                         }
@@ -211,15 +228,50 @@ pub fn ensure_path_sizer(
                         if entry.file_type().is_file() {
                             if let Ok(md) = entry.metadata() {
                                 sum = sum.saturating_add(md.len());
+                                _file_count += 1;
+                                files_since_emit += 1;
+
+                                // Throttle conditions: time-based OR big jump OR many files
+                                let due_time = last_emit_at.elapsed() >= Duration::from_millis(100);
+                                let big_jump =
+                                    sum.saturating_sub(last_emitted_bytes) >= 8 * 1024 * 1024; // 8MB
+                                let many_files = files_since_emit >= 200;
+
+                                if due_time || big_jump || many_files {
+                                    let _ = app_for_progress.emit(
+                                        "dir_size:progress",
+                                        ProgressEvent {
+                                            job_id: job_id_for_progress.clone(),
+                                            name: name_for_progress.clone(),
+                                            bytes: sum,
+                                        },
+                                    );
+                                    last_emit_at = Instant::now();
+                                    last_emitted_bytes = sum;
+                                    files_since_emit = 0;
+                                }
                             }
                         }
                     }
+
+                    // Final pulse if needed
+                    if last_emitted_bytes != sum {
+                        let _ = app_for_progress.emit(
+                            "dir_size:progress",
+                            ProgressEvent {
+                                job_id: job_id_for_progress.clone(),
+                                name: name_for_progress.clone(),
+                                bytes: sum,
+                            },
+                        );
+                    }
+
                     sum
                 })
                 .await
                 .unwrap_or(0);
 
-                // Update cache for the child (use the originals here)
+                // Update cache for the child
                 let child_key =
                     make_key(dir_path.to_string_lossy().as_ref(), show_hidden, &ignores2);
                 if let Ok(mut cache) = SIZE_CACHE.lock() {
@@ -234,11 +286,11 @@ pub fn ensure_path_sizer(
                     );
                 }
 
-                // Emit child event
+                // Emit child final event
                 let _ = app2.emit(
                     "dir_size:child",
                     ChildEvent {
-                        job_id: job_id2,
+                        job_id: job_id2.clone(),
                         name: name2.clone(),
                         bytes,
                     },
