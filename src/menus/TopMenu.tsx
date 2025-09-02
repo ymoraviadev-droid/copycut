@@ -4,6 +4,7 @@ import { useCommander } from "../store/CommanderContext";
 import Menu from "../components/menu/Menu";
 import { invoke } from "@tauri-apps/api/core";
 import type { PaneActions } from "../store/CommanderContext";
+import { fire } from "../components/modal/Modal";
 
 export default function TopMenu() {
     const [act, setAct] = useState<PaneActions | undefined>(undefined);
@@ -26,7 +27,13 @@ export default function TopMenu() {
         <div className="h-[4vh] bg-blue-900 text-white flex items-center gap-4 px-3 text-sm select-none">
             <Menu label="Main">
                 <Menu.Item label="Settings" />
-                <Menu.Item label="About" />
+                <Menu.Item label="About" onClick={async () => {
+                    await fire({
+                        title: "About",
+                        text: "CopyCut File Manager v0.1.0/\n\nmade by Yehonatan Moravia",
+                        icon: "info",
+                    })
+                }} />
                 <Menu.Sep />
                 <Menu.Item
                     label="Exit"
